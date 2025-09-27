@@ -9,7 +9,7 @@ from matplotlib.colors import to_rgba
 THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 RS_CSV_ROOT = os.path.join(os.path.dirname(THIS_DIR), "rs_csv")
 
-def visualize_map(
+def visualize_train_test_split_map(
     y,
     train_mask,
     test_mask,
@@ -20,7 +20,7 @@ def visualize_map(
     rs_csv_root=RS_CSV_ROOT
 ):
     """
-    教師データ・テストデータの空間オーバーレイ図とクラス分布棒グラフを作成する。
+    教師データとテストデータの空間的配置を可視化し、棒グラフでクラスごとの分布を表示する。
     dataset_keyword に対応する rs_csv サブディレクトリ内の CSV ファイルをカラーマップ定義に使用。
 
     from RS_GroundTruth.rs_dataset import RemoteSensingDataset  # あなたのrs_dataset.py
@@ -31,7 +31,7 @@ def visualize_map(
         train_mask (ndarray): 教師データのマスク (H, W)
         test_mask (ndarray): テストデータのマスク (H, W)
         background_label (int): 背景クラスラベル
-        dataset_keyword (str): ①について, rs.available_data_keywordから参照可。
+        dataset_keyword (str): rs_csv 内のサブディレクトリ名
         save_dir (str): 結果画像の保存先
         title (str): 図のタイトル
         rs_csv_root (str): rs_csv ディレクトリのルート
@@ -76,7 +76,7 @@ def visualize_map(
     ]
     plt.legend(handles, labels, loc="upper left", bbox_to_anchor=(1.05, 1), fontsize=9)
 
-    overlay_path = os.path.join(save_dir, "spatial_split_overlay.png")
+    overlay_path = os.path.join(save_dir, f"{dataset_keyword}_spatial_split_overlay.png")
     plt.savefig(overlay_path, bbox_inches="tight", dpi=300)
     plt.close()
 
@@ -94,7 +94,7 @@ def visualize_map(
     plt.bar(x + bar_width / 2, test_counts, bar_width, label="Test", color="#d62728")
     plt.xticks(x, labels, rotation=45, ha="right")
     plt.ylabel("Sample Count")
-    plt.title("Class-wise Train/Test Distribution")
+    plt.title(f"{dataset_keyword}:Class-wise Train/Test Distribution")
     plt.legend()
 
     # 棒グラフ上にサンプル数を表示
@@ -103,11 +103,11 @@ def visualize_map(
     for i, v in enumerate(test_counts):
         plt.text(i + bar_width/2, v + 1, str(v), ha="center", fontsize=9)
 
-    bargraph_path = os.path.join(save_dir, "class_distribution.png")
+    bargraph_path = os.path.join(save_dir, f"{dataset_keyword}_class_distribution.png")
     plt.tight_layout()
     plt.savefig(bargraph_path, dpi=300)
     plt.close()
-
+    print(f"[INFO] {dataset_keyword}の教師データ・テストデータの空間的な配置の可視化")
     print(f"[INFO] オーバーレイ図を保存しました: {overlay_path}")
     print(f"[INFO] クラス分布棒グラフを保存しました: {bargraph_path}")
 
@@ -214,10 +214,11 @@ def visualize_prediction_map(y_pred, test_index, image_shape, save_path,
 
     plt.figure(figsize=(8,8))
     plt.imshow(display)
-    plt.title("Final Prediction Map(Test Only)")
+    plt.title(f"Final Prediction Map(Test Only):{dataset_keyword}")
     plt.axis("off")
     plt.savefig(save_path, bbox_inches="tight", dpi=300)
     plt.close()
+    print("visualize_prediction_map完了。")
 
 def load_colormap_from_csv(dataset_keyword, rs_csv_root=RS_CSV_ROOT):
     """
