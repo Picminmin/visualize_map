@@ -1,6 +1,3 @@
-![GitHub repo size](https://img.shields.io/github/repo-size/https%3A%2F%2Fgithub.com%2FPicminmin/https%3A%2F%2Fgithub.com%2FPicminmin%2Fvisualize_map)
-
-
 
 # visualize_map
 RSデータセットを使った土地被覆分類タスクにおける各プロセスでの実行結果を可視化する。
