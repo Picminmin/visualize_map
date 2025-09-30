@@ -1,4 +1,5 @@
-![](https://img.shields.io/badge/repo%20size%2C%20blue)
+![Static Badge](https://img.shields.io/badge/repo%20size%2C%20blue)
+
 
 
 # visualize_map
