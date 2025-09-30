@@ -1,4 +1,4 @@
-![Static Badge](https://img.shields.io/badge/repo%20size%2C%20blue)
+![GitHub repo size](https://img.shields.io/github/repo-size/https%3A%2F%2Fgithub.com%2FPicminmin/https%3A%2F%2Fgithub.com%2FPicminmin%2Fvisualize_map)
 
 
 
