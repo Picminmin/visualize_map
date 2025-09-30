@@ -1,3 +1,6 @@
+![](https://img.shields.io/badge/repo%20size%2C%20blue)
+
+
 # visualize_map
 RSデータセットを使った土地被覆分類タスクにおける各プロセスでの実行結果を可視化する。
 <!--
