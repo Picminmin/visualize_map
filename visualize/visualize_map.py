@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.colors import to_rgba
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 
 # visualize_map.py の場所を基準にする
 THIS_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -186,12 +187,17 @@ def visualize_prediction_map(
     dataset_keyword=None,
     y_true=None,
     rs_csv_root=RS_CSV_ROOT,
-    background_label=0
+    background_label=0,
+    save_confusion=False,
+    # overlay=False,
+    # X_rgb=None, # overlay=Trueの場合に元画像(RGB)を渡す
 ):
     """
     教師データまたはテストデータに対する予測結果を可視化する。
     - y_true が与えられた場合 : 教師データ上での正解(青)/誤分類(赤)/背景(白)を可視化。
     - y_true が None の場合 : 従来通りの予測結果カラーマップを可視化。
+    - save_confusion=True: 混同行列を画像として保存
+    - overlay=True: 元画像(X_rgb)を結果を重ね合わせ表示
 
     Args:
         y_pred (ndarray): shape = (n_pred,) の予測ラベル
@@ -202,6 +208,9 @@ def visualize_prediction_map(
         y_true (ndarray, optional): 教師データ上の真のラベル
         rs_csv_root (str, optional): カラーマップCSVのルートパス
         background_label (int, optional): 背景ラベル
+        save_confusion (bool): 混同行列を保存するか
+        overlay (bool): 元画像と重ね合わせを行うか
+        X_rgb (ndarray): (H, W, 3) のRS画像 (overlay=Trueの場合必須)
     """
 
     # 保存先ディレクトリを自動作成(ディレクトリパスに対してmakedirsを呼ぶ)
@@ -224,7 +233,6 @@ def visualize_prediction_map(
 
         correct_mask = (pred_2d == true_2d) & (true_2d != background_label)
         wrong_mask = (pred_2d != true_2d) & (true_2d != background_label)
-
         # --- 誤分類率を算出 ---
         n_correct = np.count_nonzero(correct_mask)
         n_wrong = np.count_nonzero(wrong_mask)
@@ -232,12 +240,23 @@ def visualize_prediction_map(
         error_rate = n_wrong / n_total if n_total > 0 else 0.0
         acc_rate = 1 - error_rate
 
+        # --- RGBオーバーレイまたは純粋マスク ---
+        # if overlay and X_rgb is not None:
+            # base_img = (X_rgb - X_rgb.min()) / (X_rgb.max() - X_rgb.min() + 1e-8)
+            # overlay_img = base_img.copy()
+            # overlay_img[correct_mask] = 0.5 * base_img[correct_mask] + 0.5 * np.array([0.2, 0.4, 1.0])
+            # overlay_img[wrong_mask] = 0.5 * base_img[wrong_mask] + 0.5 * np.array([1.0, 0.2, 0.2])
+            # display = overlay_img
+        # else:
+            # display = np.ones((H, W, 3)) # 白背景
+            # display[correct_mask] = [0.2, 0.4, 1.0] # 青: 正解
+            # display[wrong_mask] = [1.0, 0.2, 0.2]   # 赤: 誤分類
+
         display = np.ones((H, W, 3)) # 白背景
         display[correct_mask] = [0.2, 0.4, 1.0] # 青: 正解
         display[wrong_mask] = [1.0, 0.2, 0.2]   # 赤: 誤分類
-
         plt.figure(figsize=(8,8))
-        plt.imshow(display)
+        # plt.imshow(display)
         plt.title(
             f"Train Prediction Map (Correct/Incorrect)\n"
             f"Acc: {acc_rate*100:.2f}%, Error: {error_rate*100:.2f}% ({dataset_keyword})"
@@ -246,19 +265,36 @@ def visualize_prediction_map(
         plt.savefig(save_path, bbox_inches="tight", dpi = 300)
         plt.close()
         print(f"[INFO] 教師データ可視化を保存しました → {save_path}")
+        print(f"[INFO] Accuracy={acc_rate*100:.2f}%, Error={error_rate*100:.2f}%")
 
+        # --- 混同行列を保存 ---
+        if save_confusion:
+            cm_save_path = os.path.splitext(save_path)[0] + "_confusion.png"
+            cm = confusion_matrix(y_true, y_pred, labels = np.unique(y_true))
+            disp = ConfusionMatrixDisplay(confusion_matrix=cm)
+            disp.plot(cmap="Blues", values_format="d")
+            plt.title(f"Confusion Matrix ({dataset_keyword})")
+            plt.savefig(cm_save_path, bbox_inches="tight", dpi = 300)
+            plt.close()
+            print(f"[INFO] 混同行列を保存しました → {cm_save_path}")
+
+    # ============================================================
+    # テストデータ上の可視化(従来通り)
+    # ============================================================
     else:
-        # ============================================================
-        # テストデータ上の可視化(従来通り)
-        # ============================================================
-
         # 可視化対象クラス (背景を除く)
         unique_classes = np.unique(pred_2d[pred_2d != background_label])
         # --- カラーマップ読み込み ---
         try:
-            if dataset_keyword is not None:
-                color_dict, name_dict = load_colormap_from_csv(dataset_keyword=dataset_keyword, rs_csv_root=rs_csv_root)
-                base_colors = {cls: to_rgba(color_dict.get(cls, "#808080")) for cls in unique_classes}
+            if dataset_keyword is not None and rs_csv_root is not None:
+                color_dict, name_dict = load_colormap_from_csv(
+                    dataset_keyword=dataset_keyword,
+                    rs_csv_root=rs_csv_root
+                )
+                base_colors = {
+                    cls: to_rgba(color_dict.get(cls, "#808080"))
+                    for cls in unique_classes
+                }
             else:
                 raise FileNotFoundError
         except Exception as e:
@@ -270,6 +306,11 @@ def visualize_prediction_map(
         for cls in unique_classes:
             cls_mask = (pred_2d == cls)
             display[cls_mask] = base_colors[cls]
+
+        # if overlay and X_rgb is not None:
+            # base_img = (X_rgb - X_rgb.min()) / (X_rgb.max() - X_rgb.min() + 1e-8)
+            # overlay_img = 0.6 * base_img + 0.4 * display[..., :3]
+            # display = overlay_img
 
         plt.figure(figsize=(8,8))
         plt.imshow(display)
