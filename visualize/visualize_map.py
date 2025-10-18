@@ -111,10 +111,18 @@ def visualize_train_test_split_map(
     print(f"[INFO] オーバーレイ図を保存しました: {overlay_path}")
     print(f"[INFO] クラス分布棒グラフを保存しました: {bargraph_path}")
 
-def visualize_iteration_map(y, expand_label, L_index, U_index,
-                            image_shape, save_path, dataset_keyword=None,
-                            rs_csv_root=RS_CSV_ROOT, title="Iteration Map",
-                            background_label=0):
+def visualize_iteration_map(
+    y,
+    expand_label,
+    L_index,
+    U_index,
+    image_shape,
+    save_path,
+    dataset_keyword=None,
+    rs_csv_root=RS_CSV_ROOT,
+    title="Iteration Map",
+    background_label=0
+):
     """
     ある反復におけるラベル付きデータのオーバーレイ図を保存。
 
@@ -170,55 +178,106 @@ def visualize_iteration_map(y, expand_label, L_index, U_index,
     plt.savefig(save_path, bbox_inches="tight", dpi=300)
     plt.close()
 
-def visualize_prediction_map(y_pred, test_index, image_shape, save_path,
-                             dataset_keyword=None,rs_csv_root=RS_CSV_ROOT,
-                             background_label=0):
+def visualize_prediction_map(
+    y_pred,
+    pred_index,
+    image_shape,
+    save_path,
+    dataset_keyword=None,
+    y_true=None,
+    rs_csv_root=RS_CSV_ROOT,
+    background_label=0
+):
     """
-    テストデータ領域だけの最終予測結果を可視化する。
+    教師データまたはテストデータに対する予測結果を可視化する。
+    - y_true が与えられた場合 : 教師データ上での正解(青)/誤分類(赤)/背景(白)を可視化。
+    - y_true が None の場合 : 従来通りの予測結果カラーマップを可視化。
 
     Args:
-        y_pred (ndarray): shape = (n_test,) の予測ラベル
-        test_index (ndarray): テストデータのフラットインデックス
+        y_pred (ndarray): shape = (n_pred,) の予測ラベル
+        pred_index (ndarray): 予測対象画素のフラットインデックス
         image_shape (tuple): (H, W)
         save_path (str): 保存先パス
+        dataset_keyword (str, optional): データセット名
+        y_true (ndarray, optional): 教師データ上の真のラベル
+        rs_csv_root (str, optional): カラーマップCSVのルートパス
+        background_label (int, optional): 背景ラベル
     """
+
     # 保存先ディレクトリを自動作成(ディレクトリパスに対してmakedirsを呼ぶ)
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
-
     H, W = image_shape
-    # 全体を背景ラベルで初期化
+
+    # --- 1. ベース画像を背景ラベルで初期化 ---
     pred_full = np.full(H * W, background_label, dtype=int)
-    # テストデータ領域だけ予測ラベルを代入
-    pred_full[test_index] = y_pred
+    pred_full[pred_index] = y_pred # predした領域の予測ラベルを代入
     pred_2d = pred_full.reshape(H, W)
 
-    # 可視化対象クラス (背景を除く)
-    unique_classes = np.unique(pred_2d[pred_2d != background_label])
+    if y_true is not None:
 
-    # --- カラーマップ読み込み ---
-    try:
-        if dataset_keyword is not None:
-            color_dict, name_dict = load_colormap_from_csv(dataset_keyword=dataset_keyword, rs_csv_root=rs_csv_root)
-            base_colors = {cls: to_rgba(color_dict.get(cls, "#808080")) for cls in unique_classes}
-        else:
-            raise FileNotFoundError
-    except Exception as e:
-        print(f"[WARN] CSV読み込み失敗 → デフォルトcmap使用 ({e})")
-        cmap = plt.cm.get_cmap("tab20", len(unique_classes))
-        base_colors = {cls: cmap(i) for i, cls in enumerate(unique_classes)}
+        # ============================================================
+        # 教師データ上の可視化:正解(青)/誤分類(赤)
+        # ============================================================
+        true_full = np.full(H * W, background_label, dtype = int)
+        true_full[pred_index] = y_true
+        true_2d = true_full.reshape(H, W)
 
-    display = np.ones((H, W, 4)) * 1.0
-    for cls in unique_classes:
-        cls_mask = (pred_2d == cls)
-        display[cls_mask] = base_colors[cls]
+        correct_mask = (pred_2d == true_2d) & (true_2d != background_label)
+        wrong_mask = (pred_2d != true_2d) & (true_2d != background_label)
 
-    plt.figure(figsize=(8,8))
-    plt.imshow(display)
-    plt.title(f"Final Prediction Map(Test Only):{dataset_keyword}")
-    plt.axis("off")
-    plt.savefig(save_path, bbox_inches="tight", dpi=300)
-    plt.close()
-    print("visualize_prediction_map完了。")
+        # --- 誤分類率を算出 ---
+        n_correct = np.count_nonzero(correct_mask)
+        n_wrong = np.count_nonzero(wrong_mask)
+        n_total = n_correct + n_wrong
+        error_rate = n_wrong / n_total if n_total > 0 else 0.0
+        acc_rate = 1 - error_rate
+
+        display = np.ones((H, W, 3)) # 白背景
+        display[correct_mask] = [0.2, 0.4, 1.0] # 青: 正解
+        display[wrong_mask] = [1.0, 0.2, 0.2]   # 赤: 誤分類
+
+        plt.figure(figsize=(8,8))
+        plt.imshow(display)
+        plt.title(
+            f"Train Prediction Map (Correct/Incorrect)\n"
+            f"Acc: {acc_rate*100:.2f}%, Error: {error_rate*100:.2f}% ({dataset_keyword})"
+        )
+        plt.axis("off")
+        plt.savefig(save_path, bbox_inches="tight", dpi = 300)
+        plt.close()
+        print(f"[INFO] 教師データ可視化を保存しました → {save_path}")
+
+    else:
+        # ============================================================
+        # テストデータ上の可視化(従来通り)
+        # ============================================================
+
+        # 可視化対象クラス (背景を除く)
+        unique_classes = np.unique(pred_2d[pred_2d != background_label])
+        # --- カラーマップ読み込み ---
+        try:
+            if dataset_keyword is not None:
+                color_dict, name_dict = load_colormap_from_csv(dataset_keyword=dataset_keyword, rs_csv_root=rs_csv_root)
+                base_colors = {cls: to_rgba(color_dict.get(cls, "#808080")) for cls in unique_classes}
+            else:
+                raise FileNotFoundError
+        except Exception as e:
+            print(f"[WARN] CSV読み込み失敗 → デフォルトcmap使用 ({e})")
+            cmap = plt.cm.get_cmap("tab20", len(unique_classes))
+            base_colors = {cls: cmap(i) for i, cls in enumerate(unique_classes)}
+
+        display = np.ones((H, W, 4)) * 1.0
+        for cls in unique_classes:
+            cls_mask = (pred_2d == cls)
+            display[cls_mask] = base_colors[cls]
+
+        plt.figure(figsize=(8,8))
+        plt.imshow(display)
+        plt.title(f"Test Prediction Map: {dataset_keyword}")
+        plt.axis("off")
+        plt.savefig(save_path, bbox_inches="tight", dpi=300)
+        plt.close()
+        print(f"[INFO] テストデータ可視化を保存しました → {save_path}")
 
 def load_colormap_from_csv(dataset_keyword, rs_csv_root=RS_CSV_ROOT):
     """
