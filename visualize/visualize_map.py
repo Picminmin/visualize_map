@@ -122,25 +122,27 @@ def visualize_iteration_map(
     dataset_keyword=None,
     rs_csv_root=RS_CSV_ROOT,
     title="Iteration Map",
-    background_label=0
+    background_label=0,
+    boundary = None,
+    boundary_color = (1.0, 0.3, 0.3, 0.4) # RGBA 薄赤 (透過度0.4)
 ):
     """
-    ある反復におけるラベル付きデータのオーバーレイ図を保存。
-
-    from RS_GroundTruth.rs_dataset import RemoteSensingDataset  # あなたのrs_dataset.py
-    rs = RemoteSensingDataset()  ・・・①
-
+    ある反復におけるラベル付きデータ・ラベルなしデータ・(オプションで)
+    エッジ領域を可視化する。
 
     Args:
-        y (ndarray): ground truth (flattened)
-        expand_label (ndarray): 現在のラベル配列 (flattened)
+        y (ndarray): 正解ラベル(flatten)
+        expand_label (ndarray): ラベル拡張後のラベル (flatten)
         L_index (ndarray): ラベル付きデータインデックス
         U_index (ndarray): ラベルなしデータインデックス
         image_shape (tuple): (H, W)
-        save_path (str): 保存先ファイル名
-        dataset_keyword (str): ①について、rs.available_data_keywordから参照可。
-        title (str, optional): _description_. Defaults to "Iteration Map".
-        background_label (int, optional): 背景ラベル
+        save_path (str): 画像保存先パス
+        dataset_keyword (str): カラーマップ指定用データセット名
+        rs_csv_root (str, optional): カラーマップCSVルート
+        title (str, optional): 図タイトル
+        background_label (int, optional): 背景ラベル値
+        boundary (ndarray, optional): エッジ領域 (H, W) {0,1}
+        boundary_color (tuple, optional): RGBA形式の重畳色
     """
     # 保存先ディレクトリを自動作成(ディレクトリパスに対してmakedirsを呼ぶ)
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
@@ -159,25 +161,46 @@ def visualize_iteration_map(
         cmap = plt.cm.get_cmap("tab20", len(unique_classes))
         base_colors = {cls: cmap(i) for i, cls in enumerate(unique_classes)}
 
-    # ディスプレイ配列
-    display = np.ones((H, W, 4)) * 1.0 # 白背景
+    # --- 基本表示 ---
+    display = np.ones((H, W, 4)) # 白背景
     for cls in unique_classes:
         cls_mask = (expand_label.reshape(H, W) == cls)
         display[cls_mask] = base_colors[cls]
 
-    # U_index のマスクを作成
+    # --- 未ラベルをグレー塗り ---
     mask_U = np.zeros(H * W, dtype=bool)
     mask_U[U_index] = True
     mask_U = mask_U.reshape(H, W)
-    # 未ラベル部分をグレーに塗る
     display[mask_U] = (0.8, 0.8, 0.8, 1.0)
+    # --- boundary overlay (オプション) ---
+    if boundary is not None:
+        if boundary.shape != (H, W):
+            raise ValueError(f"boundary shape mismatch: expected {(H, W)}, got {boundary.shape}")
+        boundary_mask = boundary.astype(bool)
 
+        # display[..., c]: 元の画像(RGBA配列)のチャンネルのcの値
+        # boundary_color[c]: 指定した赤色の各チャンネル値 ((1.0, 0.3, 0.3, 0.4))
+        # boundary_color[3]: RGBAのα値 (透過度) = たとえば0.4
+        for c in range(3):
+            # 各チャンネル(0:R, 1:G, 2:B)について順に半透明ブレンド処理を行う
+            display[..., c] = np.where(boundary_mask,
+                                       boundary_color[c]*boundary_color[3] + display[..., c] * (1 - boundary_color[3]),
+                                       display[..., c])
+        display[..., 3] = np.where(boundary_mask,
+                                   np.maximum(display[..., 3], boundary_color[3]),
+                                    display[..., 3])
+        # Q. np.where(condition, x, y)とは何か。
+        # A.condition[i,j]がTrueのときはx[i,j]を、
+        # Falseのときはy[i,j]を結果に採用する。
+
+    # --- 描画 ---
     plt.figure(figsize=(8,8))
     plt.imshow(display)
     plt.title(title)
     plt.axis("off")
     plt.savefig(save_path, bbox_inches="tight", dpi=300)
     plt.close()
+    print(f"[INFO] Visualization saved → {save_path}")
 
 def visualize_prediction_map(
     y_pred,
@@ -256,7 +279,7 @@ def visualize_prediction_map(
         display[correct_mask] = [0.2, 0.4, 1.0] # 青: 正解
         display[wrong_mask] = [1.0, 0.2, 0.2]   # 赤: 誤分類
         plt.figure(figsize=(8,8))
-        # plt.imshow(display)
+        plt.imshow(display)
         plt.title(
             f"Train Prediction Map (Correct/Incorrect)\n"
             f"Acc: {acc_rate*100:.2f}%, Error: {error_rate*100:.2f}% ({dataset_keyword})"
