@@ -124,7 +124,8 @@ def visualize_iteration_map(
     title="Iteration Map",
     background_label=0,
     boundary = None,
-    boundary_color = (1.0, 0.3, 0.3, 0.4) # RGBA 薄赤 (透過度0.4)
+    boundary_color = (1.0, 0.3, 0.3, 0.4), # RGBA 薄赤 (透過度0.4)
+    seed_mask = None
 ):
     """
     ある反復におけるラベル付きデータ・ラベルなしデータ・(オプションで)
@@ -183,17 +184,170 @@ def visualize_iteration_map(
         # boundary_color[3]: RGBAのα値 (透過度) = たとえば0.4
         for c in range(3):
             # 各チャンネル(0:R, 1:G, 2:B)について順に半透明ブレンド処理を行う
-            display[..., c] = np.where(boundary_mask,
-                                       boundary_color[c]*boundary_color[3] + display[..., c] * (1 - boundary_color[3]),
-                                       display[..., c])
-        display[..., 3] = np.where(boundary_mask,
-                                   np.maximum(display[..., 3], boundary_color[3]),
-                                    display[..., 3])
+            display[..., c] = np.where(
+                boundary_mask,
+                boundary_color[c]*boundary_color[3] + display[..., c] * (1 - boundary_color[3]),
+                display[..., c]
+            )
+        display[..., 3] = np.where(
+            boundary_mask,
+            np.maximum(display[..., 3], boundary_color[3]),
+            display[..., 3]
+        )
         # Q. np.where(condition, x, y)とは何か。
         # A.condition[i,j]がTrueのときはx[i,j]を、
         # Falseのときはy[i,j]を結果に採用する。
 
+    # --- seed candidates overlay (薄青色) ---
+    # seed_maskとは、特徴量を基にラベル拡張を検討したい領域のことである。
+    if seed_mask is not None:
+        seed_mask = seed_mask.reshape(H, W)
+        seed_color = (0.3, 0.6, 1.0, 0.2) # light blue RGBA
+
+        for c in range(3):
+            display[..., c] = np.where(
+                seed_mask,
+                seed_color[c] * seed_color[3] + display[..., c] * (1 - seed_color[3]),
+                display[..., c]
+            )
+
+        display[..., 3] = np.where(
+            seed_mask,
+            np.maximum(display[..., 3], seed_color[3]),
+            display[..., 3]
+        )
     # --- 描画 ---
+    plt.figure(figsize=(8,8))
+    plt.imshow(display)
+    plt.title(title)
+    plt.axis("off")
+    plt.savefig(save_path, bbox_inches="tight", dpi=300)
+    plt.close()
+    print(f"[INFO] Visualization saved → {save_path}")
+
+def visualize_iteration_map_v2(
+    y,                           # ground truth (flat)
+    expand_label,                # current expanded labels (flat)
+    L_index, U_index,            # labeled/unlabeled indices
+    image_shape,                 # (H, W)
+    save_path,                   # save
+    dataset_keyword = None,      # for colormap
+    boundary = None,             # edge mask H*W
+    seed_low_mask = None,        # low-conf seed candidate mask H*W
+    seed_high_mask = None,       # high-conf seed candidate mask H*W
+    rs_csv_root = RS_CSV_ROOT,
+    title = "Iteration Map (v2)",
+    background_label = 0,
+    boundary_color = (1.0, 0.3, 0.3, 0.4), # red for edges
+    seed_low_color = (0.3, 0.6, 1.0, 0.2), # blue for low/mid confidence seeds
+    seed_high_color = (1.0, 1.0, 0.3, 0.7) # red for high confidence seeds
+):
+    """
+    改良版 iteration 可視化:
+    - ラベルクラス色表示
+    - 未ラベル灰色表示
+    - エッジ領域の薄赤オーバーレイ
+    - seed候補 (低/中信頼度) 薄青オーバーレイ
+    - seed候補 (高信頼度) 薄黄色オーバーレイ
+    """
+    # 保存先ディレクトリを自動作成(ディレクトリパスに対してmakedirsを呼ぶ)
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    H, W = image_shape
+    expand2d = expand_label.reshape(H, W)
+    # --- カラーマップ読み込み ---
+    unique_classes = np.unique(y[y != background_label])
+    try:
+        if dataset_keyword is not None:
+            color_dict, name_dict = load_colormap_from_csv(
+                dataset_keyword = dataset_keyword,
+                rs_csv_root = rs_csv_root
+            )
+            base_colors = {
+                cls: to_rgba(color_dict.get(cls, "#808080"))
+                for cls in unique_classes
+            }
+        else:
+            raise FileNotFoundError
+    except Exception as e:
+        print(f"[WARN] CSV読み込み失敗 → デフォルトcmap使用 ({e})")
+        cmap = plt.cm.get_cmap("tab20", len(unique_classes))
+        base_colors = {cls: cmap(i) for i, cls in enumerate(unique_classes)}
+
+    # -------------------------
+    # 初期表示 (白背景)
+    # -------------------------
+    display = np.ones((H, W, 4), dtype=float)
+
+    # -------------------------
+    # クラス色による塗りつぶし
+    # -------------------------
+    for cls in unique_classes:
+        cls_mask = (expand2d == cls)
+        display[cls_mask] = base_colors[cls]
+
+    # -------------------------
+    # 未ラベル領域 (U_index) は灰色
+    # -------------------------
+    unlabeled_mask = np.zeros(H * W, dtype=bool)
+    unlabeled_mask[U_index] = True
+    unlabeled_mask = unlabeled_mask.reshape(H, W)
+    display[unlabeled_mask] = (0.8, 0.8, 0.8, 1.0)
+
+    # -------------------------
+    # boundary overlay (既存機能)
+    # -------------------------
+    if boundary is not None:
+        boundary_mask = boundary.astype(bool)
+        for c in range(3):
+            # 各チャンネル(0:R, 1:G, 2:B)について順に半透明ブレンド処理を行う
+            display[..., c] = np.where(
+                boundary_mask,
+                boundary_color[c]*boundary_color[3] + display[..., c] * (1 - boundary_color[3]),
+                display[..., c]
+            )
+        display[..., 3] = np.where(
+            boundary_mask,
+            np.maximum(display[..., 3], boundary_color[3]),
+            display[..., 3]
+        )
+
+    # -------------------------
+    # seed_high_mask overlay (薄黄色)
+    # -------------------------
+    if seed_high_mask is not None:
+        sm = seed_high_mask.reshape(H, W)
+        for c in range(3):
+            display[..., c] = np.where(
+                sm,
+                seed_high_color[c]*seed_high_color[3] + display[..., c] * (1 - seed_high_color[3]),
+                display[..., c]
+            )
+        display[..., 3] = np.where(
+            sm,
+            np.maximum(display[..., 3], seed_high_color[3]),
+            display[..., 3]
+        )
+
+    # -------------------------
+    # seed_low_mask overlay (薄青色)
+    # -------------------------
+    if seed_low_mask is not None:
+        sm = seed_low_mask.reshape(H, W)
+        for c in range(3):
+            display[..., c] = np.where(
+                sm,
+                seed_low_color[c]*seed_low_color[3] + display[..., c] * (1 - seed_low_color[3]),
+                display[..., c]
+            )
+        display[..., 3] = np.where(
+            sm,
+            np.maximum(display[..., 3], seed_low_color[3]),
+            display[..., 3]
+        )
+
+    # -------------------------
+    # 描画・保存
+    # -------------------------
     plt.figure(figsize=(8,8))
     plt.imshow(display)
     plt.title(title)
@@ -212,8 +366,6 @@ def visualize_prediction_map(
     rs_csv_root=RS_CSV_ROOT,
     background_label=0,
     save_confusion=False,
-    # overlay=False,
-    # X_rgb=None, # overlay=Trueの場合に元画像(RGB)を渡す
 ):
     """
     教師データまたはテストデータに対する予測結果を可視化する。
@@ -262,18 +414,6 @@ def visualize_prediction_map(
         n_total = n_correct + n_wrong
         error_rate = n_wrong / n_total if n_total > 0 else 0.0
         acc_rate = 1 - error_rate
-
-        # --- RGBオーバーレイまたは純粋マスク ---
-        # if overlay and X_rgb is not None:
-            # base_img = (X_rgb - X_rgb.min()) / (X_rgb.max() - X_rgb.min() + 1e-8)
-            # overlay_img = base_img.copy()
-            # overlay_img[correct_mask] = 0.5 * base_img[correct_mask] + 0.5 * np.array([0.2, 0.4, 1.0])
-            # overlay_img[wrong_mask] = 0.5 * base_img[wrong_mask] + 0.5 * np.array([1.0, 0.2, 0.2])
-            # display = overlay_img
-        # else:
-            # display = np.ones((H, W, 3)) # 白背景
-            # display[correct_mask] = [0.2, 0.4, 1.0] # 青: 正解
-            # display[wrong_mask] = [1.0, 0.2, 0.2]   # 赤: 誤分類
 
         display = np.ones((H, W, 3)) # 白背景
         display[correct_mask] = [0.2, 0.4, 1.0] # 青: 正解
@@ -329,11 +469,6 @@ def visualize_prediction_map(
         for cls in unique_classes:
             cls_mask = (pred_2d == cls)
             display[cls_mask] = base_colors[cls]
-
-        # if overlay and X_rgb is not None:
-            # base_img = (X_rgb - X_rgb.min()) / (X_rgb.max() - X_rgb.min() + 1e-8)
-            # overlay_img = 0.6 * base_img + 0.4 * display[..., :3]
-            # display = overlay_img
 
         plt.figure(figsize=(8,8))
         plt.imshow(display)
