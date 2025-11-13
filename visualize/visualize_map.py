@@ -315,35 +315,37 @@ def visualize_iteration_map_v2(
     # seed_high_mask overlay (薄黄色)
     # -------------------------
     if seed_high_mask is not None:
-        sm = seed_high_mask.reshape(H, W)
-        for c in range(3):
-            display[..., c] = np.where(
+        sm = seed_high_mask.reshape(H, W).astype(bool)
+        if np.any(sm): # 少なくとも一つTrueがある場合のみ処理
+            for c in range(3):
+                display[..., c] = np.where(
+                    sm,
+                    seed_high_color[c]*seed_high_color[3] + display[..., c] * (1 - seed_high_color[3]),
+                    display[..., c]
+                )
+            display[..., 3] = np.where(
                 sm,
-                seed_high_color[c]*seed_high_color[3] + display[..., c] * (1 - seed_high_color[3]),
-                display[..., c]
+                np.maximum(display[..., 3], seed_high_color[3]),
+                display[..., 3]
             )
-        display[..., 3] = np.where(
-            sm,
-            np.maximum(display[..., 3], seed_high_color[3]),
-            display[..., 3]
-        )
 
     # -------------------------
     # seed_low_mask overlay (薄青色)
     # -------------------------
     if seed_low_mask is not None:
-        sm = seed_low_mask.reshape(H, W)
-        for c in range(3):
-            display[..., c] = np.where(
+        sm = seed_low_mask.reshape(H, W).astype(bool)
+        if np.any(sm): # 少なくとも一つTrueがある場合のみ処理
+            for c in range(3):
+                display[..., c] = np.where(
+                    sm,
+                    seed_low_color[c]*seed_low_color[3] + display[..., c] * (1 - seed_low_color[3]),
+                    display[..., c]
+                )
+            display[..., 3] = np.where(
                 sm,
-                seed_low_color[c]*seed_low_color[3] + display[..., c] * (1 - seed_low_color[3]),
-                display[..., c]
+                np.maximum(display[..., 3], seed_low_color[3]),
+                display[..., 3]
             )
-        display[..., 3] = np.where(
-            sm,
-            np.maximum(display[..., 3], seed_low_color[3]),
-            display[..., 3]
-        )
 
     # -------------------------
     # 描画・保存
