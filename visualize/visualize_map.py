@@ -233,6 +233,7 @@ def visualize_iteration_map_v2(
     save_path,                   # save
     dataset_keyword = None,      # for colormap
     boundary = None,             # edge mask H*W
+    seed_mask = None,            # 孤立領域全体のマスク (H*W,)
     seed_low_mask = None,        # low-conf seed candidate mask H*W
     seed_high_mask = None,       # high-conf seed candidate mask H*W
     rs_csv_root = RS_CSV_ROOT,
@@ -347,6 +348,27 @@ def visualize_iteration_map_v2(
                 display[..., 3]
             )
 
+    # seed_low_mask, seed_high_maskを渡さずにseed_maskだけを渡す場合は、
+    # visualize_iteration_map()と同等のことができるようにする。
+    # seed_low_mask, seed_high_maskをそれぞれ塗り分ける場合は、seed_mask
+    # は不要である。
+    if (seed_low_mask is None) and (seed_high_mask is None):
+        if seed_mask is not None:
+            sm = seed_mask.reshape(H, W).astype(bool)
+            seed_color = (0.3, 0.6, 1.0, 0.2) # blue for low/mid confidence seeds
+            if np.any(sm): # 少なくとも一つTrueがある場合のみ処理
+                for c in range(3):
+                    display[..., c] = np.where(
+                        sm,
+                        seed_color[c]*seed_color[3] + display[..., c] * (1 - seed_color[3]),
+                        display[..., c]
+                    )
+                display[..., 3] = np.where(
+                    sm,
+                    np.maximum(display[..., 3], seed_color[3]),
+                    display[..., 3]
+                )
+
     # -------------------------
     # 描画・保存
     # -------------------------
@@ -410,12 +432,6 @@ def visualize_prediction_map(
 
         correct_mask = (pred_2d == true_2d) & (true_2d != background_label)
         wrong_mask = (pred_2d != true_2d) & (true_2d != background_label)
-        # --- 誤分類率を算出 ---
-        n_correct = np.count_nonzero(correct_mask)
-        n_wrong = np.count_nonzero(wrong_mask)
-        n_total = n_correct + n_wrong
-        error_rate = n_wrong / n_total if n_total > 0 else 0.0
-        acc_rate = 1 - error_rate
 
         display = np.ones((H, W, 3)) # 白背景
         display[correct_mask] = [0.2, 0.4, 1.0] # 青: 正解
@@ -423,14 +439,13 @@ def visualize_prediction_map(
         plt.figure(figsize=(8,8))
         plt.imshow(display)
         plt.title(
-            f"Train Prediction Map (Correct/Incorrect)\n"
-            f"Acc: {acc_rate*100:.2f}%, Error: {error_rate*100:.2f}% ({dataset_keyword})"
+            f"Train Prediction Map {dataset_keyword}"
+            # f"Acc: {acc_rate*100:.2f}%, Error: {error_rate*100:.2f}% ({dataset_keyword})"
         )
         plt.axis("off")
         plt.savefig(save_path, bbox_inches="tight", dpi = 300)
         plt.close()
-        print(f"[INFO] 教師データ可視化を保存しました → {save_path}")
-        print(f"[INFO] Accuracy={acc_rate*100:.2f}%, Error={error_rate*100:.2f}%")
+        print(f"[INFO] Train visualization saved → {save_path}")
 
         # --- 混同行列を保存 ---
         if save_confusion:
@@ -441,8 +456,9 @@ def visualize_prediction_map(
             plt.title(f"Confusion Matrix ({dataset_keyword})")
             plt.savefig(cm_save_path, bbox_inches="tight", dpi = 300)
             plt.close()
-            print(f"[INFO] 混同行列を保存しました → {cm_save_path}")
+            print(f"[INFO] Confusion matrix saved → {cm_save_path}")
 
+        return # train 用終了
     # ============================================================
     # テストデータ上の可視化(従来通り)
     # ============================================================
